@@ -1,25 +1,25 @@
-// meter.test.js
+// gas2nel.test.js
 const http = require('http');
-const Meter = require('../src/meter');
+const Gas2nel = require('../src/gas2nel');
 
-describe('Meter', () => {
-  let meter;
+describe('Gas2nel', () => {
+  let gas2nel;
 
   beforeEach(() => {
-    meter = new Meter();
+    gas2nel = new Gas2nel();
   });
 
   test('should reset metrics', () => {
-    meter.sentBytes = 100;
-    meter.receivedBytes = 200;
-    meter.reset();
-    expect(meter.sentBytes).toBe(0);
-    expect(meter.receivedBytes).toBe(0);
+    gas2nel.sentBytes = 100;
+    gas2nel.receivedBytes = 200;
+    gas2nel.reset();
+    expect(gas2nel.sentBytes).toBe(0);
+    expect(gas2nel.receivedBytes).toBe(0);
   });
 
   test('should set options', () => {
-    meter.setOptions({ include: ['metric'] });
-    expect(meter.options.include).toContain('metric');
+    gas2nel.setOptions({ include: ['metric'] });
+    expect(gas2nel.options.include).toContain('metric');
   });
 
   test('should calculate gas from metrics', () => {
@@ -33,7 +33,7 @@ describe('Meter', () => {
       receivedBytes: 2000,
       wallTimeMs: 50
     };
-    const gas = meter.estimateGasFromMetrics(metrics);
+    const gas = gas2nel.estimateGasFromMetrics(metrics);
     expect(gas).toBeGreaterThan(0);
   });
 
@@ -41,12 +41,12 @@ describe('Meter', () => {
     const server = http.createServer((req, res) => {
       res.end('Hello World');
     }).listen(3000, async () => {
-      meter.trackHttpBandwidth(http.request);
+      gas2nel.trackHttpBandwidth(http.request);
       http.get('http://localhost:3000', (res) => {
         res.on('data', () => {});
         res.on('end', () => {
-          expect(meter.sentBytes).toBeGreaterThan(0);
-          expect(meter.receivedBytes).toBeGreaterThan(0);
+          expect(gas2nel.sentBytes).toBeGreaterThan(0);
+          expect(gas2nel.receivedBytes).toBeGreaterThan(0);
           server.close(done);
         });
       });
@@ -63,7 +63,7 @@ describe('Meter', () => {
       sentBytes: 1000,
       receivedBytes: 2000
     };
-    const report = meter.generateReportFromMetrics(metrics);
+    const report = gas2nel.generateReportFromMetrics(metrics);
     expect(report).toEqual({
       cpuTimeMs: 15,
       wallTimeMs: 120,
@@ -75,9 +75,9 @@ describe('Meter', () => {
   });
 
   test('should estimate gas with metric and report options', async () => {
-    meter.setOptions({ include: ['metric', 'report'] });
+    gas2nel.setOptions({ include: ['metric', 'report'] });
     const fn = () => new Promise(resolve => setTimeout(resolve, 50));
-    const result = await meter.estimateGas(fn);
+    const result = await gas2nel.estimateGas(fn);
 
     expect(result.gas).toBeGreaterThan(0);
     expect(result.results.success).toBe(true);
@@ -87,7 +87,7 @@ describe('Meter', () => {
 
   test('should handle errors in async functions', async () => {
     const fn = async () => { throw new Error('Test error'); };
-    const result = await meter.estimateGas(fn);
+    const result = await gas2nel.estimateGas(fn);
 
     expect(result.results.success).toBe(false);
     expect(result.results.data).toBe('Test error');

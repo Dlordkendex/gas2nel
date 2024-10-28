@@ -13,14 +13,14 @@ A lightweight JavaScript library for tracking and estimating resource usage metr
 
 Install the package via npm:
 
-```bash
-npm install gas2nel-module
-
+```
+npm install gas2nel
+```
 Usage
-
+```
 Basic Example
 
-const Gas2nel = require('gas2nel-module');
+const Gas2nel = require('gas2nel');
 
 const gas2nel = new Gas2nel();
 
@@ -34,16 +34,16 @@ async function main() {
 }
 
 main();
-
+```
 Setting Options
 
 To include additional data like metrics or reports in the output:
-
+```
 gas2nel.setOptions({ include: ['metric', 'report'] });
 
 const result = await gas2nel.estimateGas(exampleFunction);
 console.log(result);
-
+```
 API
 
 setOptions(options)
@@ -99,11 +99,11 @@ Returns: An object with CPU time, memory usage, and data transferred.
 Example Tests
 
 To run tests with Jest, add the following script to your package.json:
-
+```
 "scripts": {
   "test": "jest"
 }
-
+```
 Then, create a gas2nel.test.js file for your tests (see the example in the documentation).
 
 License
