@@ -1,0 +1,43 @@
+{
+  "name": "gas2nel",
+  "version": "1.0.0",
+  "description": "A library for tracking and estimating resource usage metrics.",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "jest",
+    "lint": "eslint src",
+    "build": "npm run lint && jest"
+  },
+  "keywords": [
+    "metrics",
+    "performance",
+    "resource-usage",
+    "gas-estimation",
+    "CPU",
+    "memory",
+    "network"
+  ],
+  "author": "Dlordkendex",
+  "license": "MIT",
+  "dependencies": {
+    "events": "^3.3.0"
+  },
+  "devDependencies": {
+    "jest": "^29.0.0",
+    "eslint": "^8.0.0"
+  },
+  "engines": {
+    "node": ">=14"
+  },
+  "files": [
+    "src"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dlordkendex/gas2nel.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dlordkendex/gas2nel/issues"
+  },
+  "homepage": "https://github.com/dlordkendex/gas2nel#readme"
+}
