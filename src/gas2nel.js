@@ -18,7 +18,7 @@
  * })();
  */
 
-const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const EventEmitter = require('events');
 
@@ -49,8 +49,8 @@ class Gas2nel extends EventEmitter {
    * @return {void}
    */
   reset() {
-    this.sentBytes = 0; // Tracks total bytes sent via HTTP requests
-    this.receivedBytes = 0; // Tracks total bytes received via HTTP requests
+    this.sentBytes = 0; // Tracks total bytes sent via https requests
+    this.receivedBytes = 0; // Tracks total bytes received via https requests
     this.fileReadBytes = 0; // Tracks total bytes read from file system
     this.fileWriteBytes = 0; // Tracks total bytes written to file system
   }
@@ -91,7 +91,7 @@ class Gas2nel extends EventEmitter {
 
   /**
    * Tracks resources used by `fn`, including CPU, memory, and network I/O.
-   * Also overrides methods for HTTP bandwidth and file read/write monitoring.
+   * Also overrides methods for https bandwidth and file read/write monitoring.
    * @private
    * @param {function} fn - Async function to monitor
    * @param {...any} args - Arguments for `fn`
@@ -104,14 +104,18 @@ class Gas2nel extends EventEmitter {
     const startTime = process.hrtime.bigint(); // Record start time for wall time measurement
 
     // Preserve original methods to restore after tracking
-    const originalRequest = http.request;
+    const originalRequest = https.request;
     const originalReadFile = fs.readFile;
-    const originalWriteFile = fs.writeFile;
+    const originalWriteFile = fs.writeFile;    
+    const originalReadFileSync = fs.readFileSync;
+    const originalWriteFileSync = fs.writeFileSync;
 
-    // Override methods for tracking HTTP and file I/O
-    http.request = this.#trackHttpBandwidth(originalRequest);
+    // Override methods for tracking https and file I/O
+    https.request = this.#trackhttpsBandwidth(originalRequest);
     fs.readFile = this.#trackFileRead(originalReadFile);
     fs.writeFile = this.#trackFileWrite(originalWriteFile);
+    fs.readFileSync = this.#trackFileRead(originalReadFileSync);
+    fs.writeFileSync = this.#trackFileWrite(originalWriteFileSync);
 
     let result, error;
     try {
@@ -121,9 +125,11 @@ class Gas2nel extends EventEmitter {
     }
 
     // Restore original methods
-    http.request = originalRequest;
+    https.request = originalRequest;
     fs.readFile = originalReadFile;
     fs.writeFile = originalWriteFile;
+    fs.readFileSync = originalReadFileSync;
+    fs.writeFileSync = originalWriteFileSync;
 
     // Capture post-execution metrics
     const endCpu = process.cpuUsage(startCpu);
@@ -206,27 +212,52 @@ class Gas2nel extends EventEmitter {
   }
 
   /**
-   * Overrides http.request to monitor network traffic for bandwidth tracking
+   * Overrides https.request to monitor network traffic for bandwidth tracking
    * @private
-   * @param {function} originalRequest - Original http.request function
-   * @returns {function} - Wrapped http.request with bandwidth tracking
+   * @param {function} originalRequest - Original https.request function
+   * @returns {function} - Wrapped https.request with bandwidth tracking
    */
-  #trackHttpBandwidth(originalRequest) {
+  #trackhttpsBandwidth(originalRequest) {
     return (...args) => {
       const req = originalRequest.apply(this, args);
+  
+      // Calculate header size and add to sentBytes
+      const headersSize = JSON.stringify(req.getHeaders()).length;
+      this.sentBytes += headersSize;
+  
+      // Intercept req.write to track sent data
+      const originalWrite = req.write;
+      req.write = (chunk, encoding, callback) => {
+        if (chunk) {
+          this.sentBytes += Buffer.byteLength(chunk, encoding);
+        }
+        return originalWrite.call(req, chunk, encoding, callback);
+      };
+  
+      // Intercept req.end to track any remaining sent data
+      const originalEnd = req.end;
+      req.end = (chunk, encoding, callback) => {
+        if (chunk) {
+          this.sentBytes += Buffer.byteLength(chunk, encoding);
+        }
+        return originalEnd.call(req, chunk, encoding, callback);
+      };
+  
+      // Track received data when the socket is active
       req.on('socket', socket => {
-        socket.on('data', chunk => this.receivedBytes += chunk.length);
-        req.write = ((originalWrite) => (chunk, encoding, callback) => {
-          if (chunk) this.sentBytes += Buffer.byteLength(chunk, encoding);
-          return originalWrite.call(req, chunk, encoding, callback);
-        })(req.write);
+        socket.on('data', chunk => {
+          this.receivedBytes += chunk.length;
+        });
       });
+  
       return req;
     };
   }
+  
+  
 
   /**
-   * Overrides fs.readFile to track file read operations
+   * Overrides fs.readFile to track file read operations (async)
    * @private
    * @param {function} originalReadFile - Original fs.readFile function
    * @returns {function} - Wrapped fs.readFile with read tracking
@@ -234,22 +265,57 @@ class Gas2nel extends EventEmitter {
   #trackFileRead(originalReadFile) {
     return (path, options, callback) => {
       originalReadFile(path, options, (err, data) => {
-        if (!err && data) this.fileReadBytes += data.length;
+        if (!err && data) {
+          this.fileReadBytes += Buffer.byteLength(data); // Track the size of the read data
+        }
         callback(err, data);
       });
     };
   }
 
   /**
-   * Overrides fs.writeFile to track file write operations
+   * Overrides fs.readFileSync to track file read operations (sync)
+   * @private
+   * @param {function} originalReadFileSync - Original fs.readFileSync function
+   * @returns {function} - Wrapped fs.readFileSync with read tracking
+   */
+  #trackFileReadSync(originalReadFileSync) {
+    return (path, options) => {
+      const data = originalReadFileSync(path, options);
+      if (data) {
+        this.fileReadBytes += Buffer.byteLength(data); // Track the size of the read data
+      }
+      return data;
+    };
+  }
+
+  /**
+   * Overrides fs.writeFile to track file write operations (async)
    * @private
    * @param {function} originalWriteFile - Original fs.writeFile function
    * @returns {function} - Wrapped fs.writeFile with write tracking
    */
   #trackFileWrite(originalWriteFile) {
     return (path, data, options, callback) => {
-      if (data) this.fileWriteBytes += Buffer.byteLength(data);
+      if (data) {
+        this.fileWriteBytes += Buffer.byteLength(data); // Track the size of the written data
+      }
       originalWriteFile(path, data, options, callback);
+    };
+  }
+
+  /**
+   * Overrides fs.writeFileSync to track file write operations (sync)
+   * @private
+   * @param {function} originalWriteFileSync - Original fs.writeFileSync function
+   * @returns {function} - Wrapped fs.writeFileSync with write tracking
+   */
+  #trackFileWriteSync(originalWriteFileSync) {
+    return (path, data, options) => {
+      if (data) {
+        this.fileWriteBytes += Buffer.byteLength(data); // Track the size of the written data
+      }
+      return originalWriteFileSync(path, data, options);
     };
   }
 }

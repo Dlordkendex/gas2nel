@@ -1,4 +1,4 @@
-const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const Gas2nel = require('../src/gas2nel');
 
@@ -50,12 +50,12 @@ describe('Gas2nel', () => {
       expect(result.metric.memoryRSS).toBeDefined();
     });
 
-    test('should track HTTP bandwidth', async () => {
+    test('should track https bandwidth', async () => {
       const mockReq = new (require('events').EventEmitter)();
       mockReq.write = jest.fn();
       mockReq.end = jest.fn();
 
-      jest.spyOn(http, 'request').mockImplementation(() => {
+      jest.spyOn(https, 'request').mockImplementation(() => {
         process.nextTick(() => {
           const mockSocket = new (require('events').EventEmitter)();
           mockReq.emit('socket', mockSocket);
@@ -65,7 +65,7 @@ describe('Gas2nel', () => {
       });
 
       const result = await gas2nel.estimateGas(async () => {
-        const req = http.request('http://example.com');
+        const req = https.request('https://example.com');
         req.write('test request');
         req.end();
       });
@@ -114,13 +114,13 @@ describe('Gas2nel', () => {
     });
 
     test('should handle network errors', async () => {
-      jest.spyOn(http, 'request')
+      jest.spyOn(https, 'request')
         .mockImplementation(() => {
           throw new Error('Network error');
         });
 
       const result = await gas2nel.estimateGas(async () => {
-        http.request('http://example.com');
+        https.request('https://example.com');
       });
 
       expect(result.success).toBe(false);
