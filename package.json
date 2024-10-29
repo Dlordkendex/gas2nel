@@ -1,6 +1,6 @@
 {
   "name": "gas2nel",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A library for tracking and estimating resource usage metrics.",
   "main": "src/index.js",
   "scripts": {
