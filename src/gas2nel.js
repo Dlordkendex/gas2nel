@@ -106,7 +106,7 @@ class Gas2nel extends EventEmitter {
       },
       gas,
     };
-    if (options.include) {
+    if (options?.include) {
       if (options.include.includes("metric")) output.metric = measurement.metrics;
       if (options.include.includes("report")) output.report = this.generateReportFromMetrics(measurement.metrics);
     }
@@ -145,4 +145,4 @@ class Gas2nel extends EventEmitter {
   }
 }
 
-module.exports = { Gas2nel };
+module.exports = Gas2nel;
