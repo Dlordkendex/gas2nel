@@ -1,95 +1,199 @@
-// gas2nel.test.js
 const http = require('http');
+const fs = require('fs');
 const Gas2nel = require('../src/gas2nel');
 
 describe('Gas2nel', () => {
   let gas2nel;
 
   beforeEach(() => {
-    gas2nel = new Gas2nel();
+    gas2nel = new Gas2nel({ include: ['metric', 'report'] });
+    jest.clearAllMocks();
   });
 
-  test('should reset metrics', () => {
-    gas2nel.sentBytes = 100;
-    gas2nel.receivedBytes = 200;
-    gas2nel.reset();
-    expect(gas2nel.sentBytes).toBe(0);
-    expect(gas2nel.receivedBytes).toBe(0);
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
-  test('should set options', () => {
-    gas2nel.setOptions({ include: ['metric'] });
-    expect(gas2nel.options.include).toContain('metric');
+  describe('Constructor and Configuration', () => {
+    test('should initialize with default options', () => {
+      const defaultGas2nel = new Gas2nel();
+      expect(defaultGas2nel.options).toEqual({});
+    });
+
+    test('should initialize with custom options', () => {
+      const options = { include: ['metric'] };
+      const customGas2nel = new Gas2nel(options);
+      expect(customGas2nel.options).toEqual(options);
+    });
+
+    test('should allow updating options via setOptions', () => {
+      gas2nel.setOptions({ include: ['report'] });
+      expect(gas2nel.options).toEqual({ include: ['report'] });
+    });
   });
 
-  test('should calculate gas from metrics', () => {
-    const metrics = {
-      cpuTimeMs: 10,
-      cpuPercentage: 5,
-      memoryRSS: 1000000,
-      memoryHeapUsed: 500000,
-      memoryExternal: 200000,
-      sentBytes: 1000,
-      receivedBytes: 2000,
-      wallTimeMs: 50
-    };
-    const gas = gas2nel.estimateGasFromMetrics(metrics);
-    expect(gas).toBeGreaterThan(0);
-  });
+  describe('Resource Tracking', () => {
+    test('should track CPU and memory usage', async () => {
+      const result = await gas2nel.estimateGas(async () => {
+        // Simulate CPU work
+        let x = 0;
+        for (let i = 0; i < 1000000; i++) {
+          x += Math.sqrt(i);
+        }
+        return x;
+      });
 
-  test('should track HTTP bandwidth', (done) => {
-    const server = http.createServer((req, res) => {
-      res.end('Hello World');
-    }).listen(3000, async () => {
-      gas2nel.trackHttpBandwidth(http.request);
-      http.get('http://localhost:3000', (res) => {
-        res.on('data', () => {});
-        res.on('end', () => {
-          expect(gas2nel.sentBytes).toBeGreaterThan(0);
-          expect(gas2nel.receivedBytes).toBeGreaterThan(0);
-          server.close(done);
+      expect(result.success).toBe(true);
+      expect(result.metric).toBeDefined();
+      expect(result.metric.cpuTimeMs).toBeGreaterThan(0);
+      expect(result.metric.memoryHeapUsed).toBeDefined();
+      expect(result.metric.memoryRSS).toBeDefined();
+    });
+
+    test('should track HTTP bandwidth', async () => {
+      const mockReq = new (require('events').EventEmitter)();
+      mockReq.write = jest.fn();
+      mockReq.end = jest.fn();
+
+      jest.spyOn(http, 'request').mockImplementation(() => {
+        process.nextTick(() => {
+          const mockSocket = new (require('events').EventEmitter)();
+          mockReq.emit('socket', mockSocket);
+          mockSocket.emit('data', Buffer.from('test data'));
+        });
+        return mockReq;
+      });
+
+      const result = await gas2nel.estimateGas(async () => {
+        const req = http.request('http://example.com');
+        req.write('test request');
+        req.end();
+      });
+
+      expect(result.metric.sentBytes).toBeGreaterThan(0);
+      expect(result.metric.receivedBytes).toBeGreaterThan(0);
+    });
+
+    test('should track file I/O operations', async () => {
+      const testData = 'test content';
+      
+      jest.spyOn(fs, 'readFile')
+        .mockImplementation((path, options, callback) => {
+          callback(null, Buffer.from(testData));
+        });
+
+      jest.spyOn(fs, 'writeFile')
+        .mockImplementation((path, data, options, callback) => {
+          callback(null);
+        });
+
+      const result = await gas2nel.estimateGas(async () => {
+        await new Promise((resolve) => {
+          fs.readFile('test.txt', 'utf8', (err, data) => {
+            fs.writeFile('output.txt', data, 'utf8', () => {
+              resolve();
+            });
+          });
         });
       });
+
+      expect(result.metric.fileReadBytes).toBe(testData.length);
+      expect(result.metric.fileWriteBytes).toBe(testData.length);
     });
   });
 
-  test('should generate report from metrics', () => {
-    const metrics = {
-      cpuTimeMs: 15,
-      wallTimeMs: 120,
-      memoryRSS: 5 * 1024 * 1024,          // 5 MB
-      memoryHeapUsed: 2 * 1024 * 1024,      // 2 MB
-      memoryExternal: 512 * 1024,           // 0.5 MB
-      sentBytes: 1000,
-      receivedBytes: 2000
-    };
-    const report = gas2nel.generateReportFromMetrics(metrics);
-    expect(report).toEqual({
-      cpuTimeMs: 15,
-      wallTimeMs: 120,
-      peakMemoryRSS: '5 MB',
-      memoryHeapUsed: '2 MB',
-      memoryExternal: '0.5 MB',
-      dataTransferred: '2.9296875 KB'
+  describe('Error Handling', () => {
+    test('should handle function errors gracefully', async () => {
+      const result = await gas2nel.estimateGas(async () => {
+        throw new Error('Test error');
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.data).toBe('Test error');
+      expect(result.gas).toBeDefined();
+    });
+
+    test('should handle network errors', async () => {
+      jest.spyOn(http, 'request')
+        .mockImplementation(() => {
+          throw new Error('Network error');
+        });
+
+      const result = await gas2nel.estimateGas(async () => {
+        http.request('http://example.com');
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.data).toContain('Network error');
     });
   });
 
-  test('should estimate gas with metric and report options', async () => {
-    gas2nel.setOptions({ include: ['metric', 'report'] });
-    const fn = () => new Promise(resolve => setTimeout(resolve, 50));
-    const result = await gas2nel.estimateGas(fn);
+  describe('Report Generation', () => {
+    test('should generate human-readable reports when included', async () => {
+      const result = await gas2nel.estimateGas(async () => {
+        // Simulate some work
+        const arr = new Array(1000000).fill(0);
+        return arr.map(x => x + 1);
+      });
 
-    expect(result.gas).toBeGreaterThan(0);
-    expect(result.results.success).toBe(true);
-    expect(result.metric).toBeDefined();
-    expect(result.report).toBeDefined();
+      expect(result.report).toBeDefined();
+      expect(result.report.cpuTimeMs).toBeDefined();
+      expect(result.report.peakMemoryRSS).toMatch(/MB$/);
+      expect(result.report.memoryHeapUsed).toMatch(/MB$/);
+      expect(result.report.networkTransferred).toMatch(/KB$/);
+      expect(result.report.fileIO).toMatch(/KB$/);
+    });
+
+    test('should exclude metrics and report when not requested', async () => {
+      gas2nel.setOptions({});
+      const result = await gas2nel.estimateGas(async () => true);
+
+      expect(result.metric).toBeUndefined();
+      expect(result.report).toBeUndefined();
+      expect(result.success).toBe(true);
+      expect(result.gas).toBeDefined();
+    });
   });
 
-  test('should handle errors in async functions', async () => {
-    const fn = async () => { throw new Error('Test error'); };
-    const result = await gas2nel.estimateGas(fn);
+  describe('Gas Estimation', () => {
+    test('should produce reasonable gas estimates', async () => {
+      const lightResult = await gas2nel.estimateGas(async () => true);
+      
+      const heavyResult = await gas2nel.estimateGas(async () => {
+        // Heavy computation
+        const arr = new Array(2000000).fill(0);
+        return arr.map(x => Math.sqrt(x));
+      });
 
-    expect(result.results.success).toBe(false);
-    expect(result.results.data).toBe('Test error');
+      expect(heavyResult.gas).toBeGreaterThan(lightResult.gas);
+    });
+
+    test('should factor in all resource types', async () => {
+      jest.spyOn(fs, 'writeFile')
+        .mockImplementation((path, data, options, callback) => {
+          callback(null);
+        });
+
+      const result = await gas2nel.estimateGas(async () => {
+        // CPU work
+        let x = 0;
+        for (let i = 0; i < 100000; i++) x += Math.sqrt(i);
+        
+        // Memory allocation
+        const arr = new Array(1000000).fill(0);
+        
+        // File I/O
+        await new Promise(resolve => {
+          fs.writeFile('test.txt', 'test', 'utf8', resolve);
+        });
+        
+        return x;
+      });
+
+      expect(result.gas).toBeGreaterThan(0);
+      expect(result.metric.cpuTimeMs).toBeGreaterThan(0);
+      expect(result.metric.memoryHeapUsed).toBeGreaterThan(0);
+      expect(result.metric.fileWriteBytes).toBeGreaterThan(0);
+    });
   });
 });
